@@ -2,3 +2,6 @@ agnes
 tests/roms
 .vscode/
 agnes.xcodeproj/
+*.wasm
+*.nes
+index.html

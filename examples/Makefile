@@ -1,20 +1,23 @@
-CC = gcc
-CFLAGS = -O3 -g -Wall -Wextra -pedantic-errors -Wno-unused-parameter
+LIBC = ../../../wasmlite/libc
+WCC = ../../../xcc/wcc
+CLANG = clang
 
-CPPC = g++
-CPPFLAGS = -O3 -g -Wall -Wextra -pedantic-errors -Wno-unused-parameter
+DEBUG = 0
+OUT = agnes.wasm wcc-agnes.wasm
 
-SDLCONFIG = $(shell sdl2-config --cflags --libs)
+ifeq ($(DEBUG),0)
+CFLAGS = -Oz -ffast-math -flto #-Wall -Wextra
+else
+CFLAGS = -g -Wall -Wextra
+endif
 
-all: simple_sdl2 simple_sdl2_cpp
+agnes.wasm: CC = $(CLANG) --target=wasm32 --sysroot=$(LIBC) -Wl,--export-table -Wl,--export=malloc -nodefaultlibs -lc
+wcc-agnes.wasm: CC = $(WCC) -isystem=$(LIBC)/include -L$(LIBC)/lib -Wl,--export-table -e=malloc --stack-size=64000
 
-.PHONY: simple_sdl2
-simple_sdl2: simple_sdl2.c ../agnes.c
-	$(CC) $(CFLAGS) $(SDLCONFIG) -o $@ $^
+all: $(OUT) serve
 
-.PHONY: simple_sdl2_cpp
-simple_sdl2_cpp: simple_sdl2.c ../agnes.c
-	$(CPPC) $(CPPFLAGS) $(SDLCONFIG) -o $@ $^
+$(OUT): wasm.c ../agnes.c
+	$(CC) $(CFLAGS) -o $@ $^
 
-clean:
-	rm -rf simple_sdl2 simple_sdl2_cpp *.dSYM *.o
+serve:
+	esbuild --servedir=.

@@ -1,7 +1,9 @@
 #include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-
-#include <SDL.h>
+#include <js/glue.h>
+#include <js/dom_pk_codes.h>
 
 #include "../agnes.h"
 
@@ -9,27 +11,55 @@
 #define GMASK 0x0000ff00
 #define BMASK 0x00ff0000
 #define AMASK 0xff000000
-#define WINDOW_WIDTH 512
-#define WINDOW_HEIGHT 480
 
-static void get_input(const Uint8 *state, agnes_input_t *out_input);
+static void get_input(const uint8_t *state, agnes_input_t *out_input);
 static void* read_file(const char *filename, size_t *out_len);
+
+static uint32_t pixels[AGNES_SCREEN_WIDTH * AGNES_SCREEN_HEIGHT];
+
+uint8_t keyboard_state[UINT16_MAX] = {0};
+
+static bool onkey(void *userdata, bool pressed, int key, int code, int modifiers) {
+    (void)userdata, (void)key, (void)modifiers;
+    keyboard_state[code] = pressed;
+    if (code == DOM_PK_F12) {
+        return 0;
+    }
+    return 1;
+}
+
+static void* read_filepicker_file(char **filename, size_t *len, const char* ext) {
+    JS_setFont("bold 20px Roboto");
+    JS_fillStyle("white");
+
+    char buf[UINT8_MAX];
+    snprintf(buf, sizeof(buf), "Click to browse... (%s)", ext ? ext : ".*");
+    JS_fillText(buf, (AGNES_SCREEN_WIDTH - JS_measureTextWidth(buf)) / 2, AGNES_SCREEN_HEIGHT / 2);
+
+    uint8_t *file = JS_openFilePicker(filename, len, ext);
+    return file;
+}
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         fprintf(stderr, "Usage: %s game.nes\n", argv[0]);
-        return 1;
+        // return 1;
     }
 
-    const char *ines_name = argv[1];
+    JS_createCanvas(AGNES_SCREEN_WIDTH, AGNES_SCREEN_HEIGHT);
+    JS_setTitle("agnes");
+    JS_addKeyEventListener(NULL, onkey);
+
+    char *ines_name = argc >= 2 ? argv[1] : NULL;
 
     size_t ines_data_size = 0;
-    void* ines_data = read_file(ines_name, &ines_data_size);
+    void* ines_data = argc >= 2 ? read_file(ines_name, &ines_data_size) :
+                                read_filepicker_file(&ines_name, &ines_data_size, ".nes");
     if (ines_data == NULL) {
         fprintf(stderr, "Reading %s failed.\n", ines_name);
         return 1;
     }
-    
+
     agnes_t *agnes = agnes_make();
     if (agnes == NULL) {
         fprintf(stderr, "Making agnes failed.\n");
@@ -42,30 +72,10 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    if (SDL_Init(SDL_INIT_EVERYTHING) != 0) {
-        fprintf(stderr, "Initializing SDL failed.\n");
-        return 1;
-    }
-
-    SDL_Window *window = SDL_CreateWindow("agnes", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, 0);
-    SDL_Renderer *sdl_renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    SDL_Surface *surface = SDL_CreateRGBSurface(0, AGNES_SCREEN_WIDTH, AGNES_SCREEN_HEIGHT, 32, RMASK, GMASK, BMASK, AMASK);
-    SDL_Texture *texture = SDL_CreateTextureFromSurface(sdl_renderer, surface);
-
-    SDL_Rect window_size = {0, 0, WINDOW_WIDTH, WINDOW_HEIGHT};
-
     agnes_input_t input;
 
     while (true) {
-        SDL_Event e;
-        SDL_PollEvent(&e);
-        if (e.type == SDL_QUIT) {
-            break;
-        }
-
-        const Uint8 *keyboard_state = SDL_GetKeyboardState(NULL);
-
-        if (keyboard_state[SDL_SCANCODE_ESCAPE]) {
+        if (keyboard_state[DOM_PK_ESCAPE]) {
             break;
         }
 
@@ -79,42 +89,34 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        uint32_t *pixels = (uint32_t*)surface->pixels;
         for (int y = 0; y < AGNES_SCREEN_HEIGHT; y++) {
             for (int x = 0; x < AGNES_SCREEN_WIDTH; x++) {
                 agnes_color_t c = agnes_get_screen_pixel(agnes, x, y);
                 int ix = (y * AGNES_SCREEN_WIDTH) + x;
-                uint32_t c_val = c.a << 24 | c.r << 16 | c.g << 8 | c.b;
+                uint32_t c_val = c.a << 24 | c.b << 16 | c.g << 8 | c.r;
                 pixels[ix] = c_val;
             }
         }
 
-        SDL_UpdateTexture(texture, NULL, surface->pixels, surface->pitch);
-        SDL_RenderCopy(sdl_renderer, texture, NULL, &window_size);
-        SDL_RenderPresent(sdl_renderer);
+        JS_setPixelsAlpha(pixels);
+        JS_requestAnimationFrame();
     }
 
     agnes_destroy(agnes);
-
-    SDL_DestroyTexture(texture);
-    SDL_FreeSurface(surface);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
-
     return 0;
 }
 
-static void get_input(const Uint8 *state, agnes_input_t *out_input) {
+static void get_input(const uint8_t *state, agnes_input_t *out_input) {
     memset(out_input, 0, sizeof(agnes_input_t));
 
-    if (state[SDL_SCANCODE_Z])      out_input->a = true;
-    if (state[SDL_SCANCODE_X])      out_input->b = true;
-    if (state[SDL_SCANCODE_LEFT])   out_input->left = true;
-    if (state[SDL_SCANCODE_RIGHT])  out_input->right = true;
-    if (state[SDL_SCANCODE_UP])     out_input->up = true;
-    if (state[SDL_SCANCODE_DOWN])   out_input->down = true;
-    if (state[SDL_SCANCODE_RSHIFT]) out_input->select = true;
-    if (state[SDL_SCANCODE_RETURN]) out_input->start = true;
+    if (state[DOM_PK_Z])           out_input->a = true;
+    if (state[DOM_PK_X])           out_input->b = true;
+    if (state[DOM_PK_ARROW_LEFT])  out_input->left = true;
+    if (state[DOM_PK_ARROW_RIGHT]) out_input->right = true;
+    if (state[DOM_PK_ARROW_UP])    out_input->up = true;
+    if (state[DOM_PK_ARROW_DOWN])  out_input->down = true;
+    if (state[DOM_PK_SHIFT_RIGHT]) out_input->select = true;
+    if (state[DOM_PK_ENTER])       out_input->start = true;
 }
 
 static void* read_file(const char *filename, size_t *out_len) {

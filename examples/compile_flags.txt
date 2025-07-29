@@ -1,0 +1,4 @@
+--sysroot=../../../wasmlite/libc
+--target=wasm32
+-Wall
+-Wextra
