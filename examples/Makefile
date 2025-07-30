@@ -18,6 +18,11 @@ all: $(OUT) serve
 
 $(OUT): wasm.c ../agnes.c
 	$(CC) $(CFLAGS) -o $@ $^
+ifeq ($(DEBUG),0)
+	wasm-opt $@ -o $@ -Oz -all && wasm-strip $@
+else
+	../../emscripten/tools/wasm-sourcemap.py $@ -w $@ -p $(CURDIR) -s -u ./$@.map -o $@.map --dwarfdump=/usr/bin/llvm-dwarfdump
+endif
 
 serve:
 	esbuild --servedir=.
