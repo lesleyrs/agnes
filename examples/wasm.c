@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
         // return 1;
     }
 
-    JS_createCanvas(AGNES_SCREEN_WIDTH, AGNES_SCREEN_HEIGHT);
+    JS_createCanvas(AGNES_SCREEN_WIDTH, AGNES_SCREEN_HEIGHT, "2d");
     JS_setTitle("agnes");
     JS_addKeyEventListener(NULL, onkey);
 
